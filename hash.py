@@ -1,76 +1,44 @@
 import telebot
-from telebot import types
-from flask import Flask, request
-import os
+import random
+from pyarabic.araby import is_arabicrange
 
-TOKEN = os.environ.get('BOT_TOKEN')
+TOKEN = "7885976077:AAEKI55zqgfWlruL1bWpAXxBOYx9aZOwy-w"
 bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
 
-# توليد الهاشتاغات حسب القوة
-def generate_hashtags(keyword, level):
-    keyword = keyword.lower().strip().replace(" ", "")
-    base_tags = {
-        'low': ['love', 'like', 'fun'],
-        'medium': ['viral', 'trend', 'explore'],
-        'high': ['tiktok', 'foryou', 'foryoupage', 'fyp', '2025', 'shorts', 'reels']
-    }
-    tags = base_tags.get(level, [])
-    hashtags = [f"#{keyword}"]
-    for tag in tags:
-        hashtags.append(f"#{keyword}{tag}")
-        hashtags.append(f"#{tag}{keyword}")
-    return hashtags[:10]
+def is_arabic_word(word):
+    return all(is_arabicrange(c) for c in word) and len(word) >= 3
 
-# رسالة البدء
+def is_english_word(word):
+    return word.isalpha() and word.isascii() and len(word) >= 3
+
+def handle_keyword(message, keyword):
+    if not (is_arabic_word(keyword) or is_english_word(keyword)):
+        bad_responses = [
+            "متاكد انك بتعرف تكتب ؟ 🌚",
+            "شو هي الطلاسم ؟😂",
+            "عجقتني 🌚 صحح كتابتك وفهمني شو بدك 🙄",
+            "انا عاوز كلمة مفيدة 🌚"
+        ]
+        bot.reply_to(message, random.choice(bad_responses))
+        return False
+    return True
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("تيك توك")
-    markup.add(btn1)
-    bot.send_message(message.chat.id, "اختار المنصة يلي بدك هاشتاغات إلها:", reply_markup=markup)
+    markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = telebot.types.KeyboardButton('تيك توك')
+    btn2 = telebot.types.KeyboardButton('إنستغرام (قريباً)')
+    btn3 = telebot.types.KeyboardButton('فيسبوك (قريباً)')
+    markup.add(btn1, btn2, btn3)
+    bot.send_message(message.chat.id, "أهلاً! اختر المنصة اللي بدك هاشتاغاتها:", reply_markup=markup)
 
-# اختيار المنصة
-@bot.message_handler(func=lambda msg: msg.text == "تيك توك")
-def ask_keyword(message):
-    msg = bot.send_message(message.chat.id, "اكتب الكلمة المفتاحية يلي بدك هاشتاغات عنها:")
-    bot.register_next_step_handler(msg, ask_strength)
+@bot.message_handler(func=lambda message: True)
+def process_message(message):
+    keyword = message.text.strip()
+    if not handle_keyword(message, keyword):
+        return
+    # هنانا بتضيف كود جلب الهاشتاغات بناءً على keyword
+    # حالياً، رح نرسل رد تجريبي
+    bot.reply_to(message, f"كلمة '{keyword}' تمام! هاجيب لك هاشتاغات على طول...")
 
-# عرض خيارات القوة
-def ask_strength(message):
-    keyword = message.text
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("قوة ضعيفة", callback_data=f"low|{keyword}"),
-        types.InlineKeyboardButton("قوة متوسطة", callback_data=f"medium|{keyword}"),
-        types.InlineKeyboardButton("قوة قوية", callback_data=f"high|{keyword}")
-    )
-    bot.send_message(message.chat.id, "اختار قوة الهاشتاغات:", reply_markup=markup)
-
-# توليد الهاشتاغات حسب الخيار
-@bot.callback_query_handler(func=lambda call: True)
-def send_hashtags(call):
-    level, keyword = call.data.split("|")
-    hashtags = generate_hashtags(keyword, level)
-    text = f"هاشتاغات لكلمة: {keyword} (قوة {level}):\n\n" + "\n".join(hashtags)
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("نسخ الهاشتاغات", switch_inline_query= " ".join(hashtags)))
-
-    bot.send_message(call.message.chat.id, text, reply_markup=markup)
-
-# Webhook للـ Render
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-    bot.process_new_updates([update])
-    return "OK", 200
-
-@app.route('/')
-def index():
-    return "البوت شغال تمام"
-    
-if __name__ == '__main__':
-    bot.remove_webhook()
-    bot.set_webhook(url=f"https://hashtag-generator-bot.onrender.com/{TOKEN}")
-    app.run(host="0.0.0.0", port=10000)
+bot.infinity_polling()
