@@ -1,92 +1,75 @@
-from flask import Flask, request
 import telebot
+from flask import Flask, request
+import nltk
+import re
+import string
 import random
 
-TOKEN = "7885976077:AAEKI55zqgfWlruL1bWpAXxBOYx9aZOwy-w"
-WEBHOOK_URL = f"https://hashtag-generator-bot.onrender.com/{TOKEN}"
+# تحميل قاموس الكلمات الإنجليزية
+nltk.download('words')
+from nltk.corpus import words
+english_vocab = set(words.words())
 
+# التوكن تبع البوت
+TOKEN = '7885976077:AAEKI55zqgfWlruL1bWpAXxBOYx9aZOwy-w'
 bot = telebot.TeleBot(TOKEN)
+
 app = Flask(__name__)
 
-# ======== رسائل الفلترة والبهدلة ========
-bad_input_responses = [
+# بهدلات عشوائية
+insults = [
     "متأكد انك بتعرف تكتب؟ 🌚",
     "شو هي الطلاسم؟ 😂",
     "عجقتني 🌚 صحح كتابتك وفهمني شو بدك 🙄",
-    "أنا عاوز كلمة مفيدة 🌚"
+    "انا عاوز كلمة مفيدة 🌚",
+    "مافهمت شي من هالكلمة 🤦‍♂️"
 ]
 
-# ======== دالة توليد هاشتاغات وهمية (تجريبية) ========
-def generate_hashtags(keyword, strength="medium"):
-    hashtags = []
-    base = f"#{keyword}"
-    if strength == "low":
-        hashtags = [base + str(i) for i in range(1, 11)]
-    elif strength == "medium":
-        hashtags = [base + "_trend" + str(i) for i in range(1, 11)]
-    elif strength == "high":
-        hashtags = [base + "_viral" + str(i) for i in range(1, 11)]
-    return hashtags
+# دالة للتحقق من كون الكلمة عربية
+def is_arabic(word):
+    return all('\u0600' <= c <= '\u06FF' or c.isspace() for c in word)
 
-# ======== استقبال الرسائل =========
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn = telebot.types.KeyboardButton("تيك توك")
-    markup.add(btn)
-    bot.reply_to(message, "اهلا فيك! اختر المنصة يلي بدك تولد هاشتاغات إلها:", reply_markup=markup)
+# دالة للتحقق من كون الكلمة إنجليزية
+def is_english_word(word):
+    return word.lower() in english_vocab
 
-@bot.message_handler(func=lambda m: m.text == "تيك توك")
-def ask_keyword(message):
-    msg = bot.reply_to(message, "اكتب الكلمة المفتاحية يلي بدك تولد هاشتاغات عنها:")
-    bot.register_next_step_handler(msg, ask_strength)
+# فلترة الكلمات
+def is_valid_keyword(word):
+    word = word.strip().lower()
+    if not word.isalpha():
+        return False
+    if is_arabic(word):
+        return True
+    if is_english_word(word):
+        return True
+    return False
 
-def ask_strength(message):
+# لما المستخدم يرسل رسالة
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
     keyword = message.text.strip()
-    if not keyword.isalnum():
-        bot.reply_to(message, random.choice(bad_input_responses))
+    if not is_valid_keyword(keyword):
+        bot.reply_to(message, random.choice(insults))
         return
 
-    markup = telebot.types.InlineKeyboardMarkup()
-    for level in ["low", "medium", "high"]:
-        markup.add(telebot.types.InlineKeyboardButton(f"قوة {level}", callback_data=f"{level}|{keyword}"))
-    bot.send_message(message.chat.id, f"اختر قوة الهاشتاغات للكلمة: {keyword}", reply_markup=markup)
+    # توليد هاشتاغات مؤقتة
+    hashtags = [f"#{keyword}{i}" for i in range(1, 11)]
+    hashtags_text = "\n".join(hashtags)
+    bot.reply_to(message, f"هاي شوية هاشتاغات:\n\n{hashtags_text}")
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    strength, keyword = call.data.split("|")
-    hashtags = generate_hashtags(keyword, strength)
-
-    if not hashtags:
-        bot.send_message(call.message.chat.id, "ما قدرت جيب هاشتاغات 🌚 جرب كلمة ثانية.")
-        return
-
-    text = f"هاشتاغات قوية ({strength}) للكلمة **{keyword}**:\n\n" + "\n".join(hashtags)
-    markup = telebot.types.InlineKeyboardMarkup()
-    copy_btn = telebot.types.InlineKeyboardButton("📋 نسخ الهاشتاغات", switch_inline_query=keyword)
-    markup.add(copy_btn)
-    bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
-
-# ======== إعداد Webhook =========
-@app.route(f"/{TOKEN}", methods=["POST"])
+# إعداد Webhook
+@app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
-    json_str = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_str)
+    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
     bot.process_new_updates([update])
-    return "ok", 200
+    return "OK", 200
 
-@app.route("/")
+@app.route('/')
 def index():
-    return "بوت الهاشتاغ شغال تمام 🌚"
+    return "هاشتاغ بوت شغال 🌐"
 
+# شغّل السيرفر
 if __name__ == "__main__":
     bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=5000)    keyword = message.text.strip()
-    if not handle_keyword(message, keyword):
-        return
-    # هنانا بتضيف كود جلب الهاشتاغات بناءً على keyword
-    # حالياً، رح نرسل رد تجريبي
-    bot.reply_to(message, f"كلمة '{keyword}' تمام! هاجيب لك هاشتاغات على طول...")
-
-bot.infinity_polling()
+    bot.set_webhook(url='https://hashtag-generator-bot.onrender.com/' + TOKEN)
+    app.run(host="0.0.0.0", port=10000)
