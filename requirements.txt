@@ -3,3 +3,4 @@ requests
 pytelegrambotapi
 pyarabic
 nltk
+beautifulsoup4
