@@ -1,126 +1,91 @@
+from flask import Flask, request
 import telebot
-from telebot import types
 import requests
-from bs4 import BeautifulSoup
-import re
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from nltk.corpus import words
+from pyarabic.araby import is_arabicrange
 
-TOKEN = '7885976077:AAEKI55zqgfWlruL1bWpAXxBOYx9aZOwy-w'
-bot = telebot.TeleBot(TOKEN)
+API_TOKEN = '7885976077:AAEKI55zqgfWlruL1bWpAXxBOYx9aZOwy-w'
+bot = telebot.TeleBot(API_TOKEN)
+app = Flask(__name__)
 
-# دالة تجلب هاشتاغات من موقع scraping مجاني (مثال)
-def get_hashtags(keyword, strength='high'):
-    try:
-        # strength ممكن نستخدمها لتصفية لاحقاً أو اختيار عدد أو ترتيب
-        url = f'https://best-hashtags.com/hashtag/{keyword}/'
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200:
-            return None
-        soup = BeautifulSoup(r.text, 'html.parser')
-        # الموقع فيه هاشتاغات في div معين, ناخذ أول 30 تقريباً
-        hashtags_section = soup.find('div', {'class': 'tag-box tag-box-v3 margin-bottom-40'})
-        if not hashtags_section:
-            return None
-        tags_text = hashtags_section.text.strip()
-        tags = re.findall(r'#\w+', tags_text)
-        if not tags:
-            return None
-        # فلترة حسب قوة الهاشتاغ (high = أول 10, medium = 10 من الوسط, low = آخر 10)
-        total = len(tags)
-        if strength == 'high':
-            selected = tags[:10]
-        elif strength == 'medium':
-            start = total // 3
-            selected = tags[start:start+10]
-        else:
-            selected = tags[-10:]
-        return ' '.join(selected)
-    except Exception as e:
-        print('Error in get_hashtags:', e)
-        return None
+WEBHOOK_URL = f"https://your-app-name.onrender.com/{API_TOKEN}"
 
-# ردود مزح لو كلمة مش مفهومة
-funny_replies = [
-    "متأكد إنك بتعرف تكتب؟",
-    "شو هي الطلاسم؟ عجبتني! صحح كتابتك وفهمني شو بدك.",
-    "أنا عاوز كلمة مفيدة مش هيك.",
-]
+# فلترة الكلمات غير المفهومة
+english_words = set(words.words())
 
 def is_valid_word(word):
-    # بسيطة: نتأكد الكلمة أبجدية (عربي أو إنجليزي) بدون رموز
-    return re.match(r'^[\u0600-\u06FFa-zA-Z0-9]+$', word) is not None
+    if word.startswith("/"):  # أمر تليجرام
+        return True
+    if all(is_arabicrange(c) for c in word):
+        return len(word) > 1  # لازم تكون كلمة عربية بطول معقول
+    if word.lower() in english_words:
+        return True
+    return False
 
-# البداية: عرض اختيار المنصة (حاليًا بس تيك توك)
+# توليد هاشتاغات وهمية حسب القوة
+def generate_hashtags(base, strength="medium"):
+    count = 10
+    if strength == "weak":
+        return [f"#{base}{i}" for i in range(1, count+1)]
+    elif strength == "medium":
+        return [f"#{base}{i*10}" for i in range(1, count+1)]
+    else:
+        return [f"#{base}{i*100}" for i in range(1, count+1)]
+
+# رسالة الترحيب
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    btn1 = types.KeyboardButton('تيك توك')
-    # ممكن نضيف هنا انستغرام وفيسبوك مستقبلًا
-    markup.add(btn1)
-    bot.send_message(message.chat.id, "أهلاً! اختر المنصة اللي بدك هاشتاغات إلها:", reply_markup=markup)
+    bot.reply_to(message, "أهلا وسهلا فيك! ابعتلي كلمة مفتاحية لنولدلك هاشتاغات نار")
 
-# اختيار المنصة (حاليًا فقط تيك توك)
-@bot.message_handler(func=lambda m: m.text in ['تيك توك'])
-def platform_chosen(message):
-    bot.send_message(message.chat.id, "طيب، اكتبلي كلمة لأجيبلك هاشتاغات قوية. بعدها بدي منك تختار قوة الهاشتاغ (عالٍ، متوسط، منخفض).")
-
-# استقبال كلمة المستخدم وانتظار قوة الهاشتاغ بعدها
-user_keywords = {}
-user_strengths = {}
-
-@bot.message_handler(func=lambda m: True)
+# استقبال الكلمات
+@bot.message_handler(func=lambda message: True)
 def handle_message(message):
     text = message.text.strip()
 
-    # أوامر تبدأ بـ /
-    if text.startswith('/'):
-        bot.send_message(message.chat.id, "هاي أمر، استعمل /start عشان ترجع للبداية.")
+    if not is_valid_word(text):
+        replies = [
+            "متأكد إنك بتعرف تكتب؟ 🌚",
+            "شو هي الطلاسم؟ 😂",
+            "عجقتني 🌚 صحح كتابتك وفهمني شو بدك 🙄",
+            "انا عاوز كلمة مفيدة 🌚"
+        ]
+        bot.reply_to(message, replies[hash(text) % len(replies)])
         return
 
-    # إذا المستخدم ما اختار المنصة بعد
-    if message.chat.id not in user_keywords:
-        # أول مرة يرسل كلمة بعد اختيار المنصة
-        if not is_valid_word(text):
-            bot.send_message(message.chat.id, random.choice(funny_replies))
-            return
-        user_keywords[message.chat.id] = text
-        markup = types.InlineKeyboardMarkup(row_width=3)
-        markup.add(
-            types.InlineKeyboardButton("عالٍ", callback_data="strength_high"),
-            types.InlineKeyboardButton("متوسط", callback_data="strength_medium"),
-            types.InlineKeyboardButton("منخفض", callback_data="strength_low"),
-        )
-        bot.send_message(message.chat.id, "اختار قوة الهاشتاغ:", reply_markup=markup)
-        return
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("قوة ضعيفة", callback_data=f"weak:{text}"),
+        InlineKeyboardButton("قوة متوسطة", callback_data=f"medium:{text}"),
+        InlineKeyboardButton("قوة خارقة", callback_data=f"strong:{text}")
+    )
+    bot.reply_to(message, "اختر قوة الهاشتاغات يلي بدك ياها:", reply_markup=keyboard)
 
-    # إذا أرسل كلمة جديدة بدل يختار قوة، نعطيه تنبيه ويرجع يختار قوة
-    if message.chat.id in user_keywords and message.chat.id not in user_strengths:
-        bot.send_message(message.chat.id, "اختار قوة الهاشتاغ من الأزرار تحت، أو اكتب /start للبداية من جديد.")
-        return
+# معالجة الضغط عالأزرار
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    strength, word = call.data.split(":")
+    hashtags = generate_hashtags(word, strength)
+    tags_text = "\n".join(hashtags)
 
-# استقبال اختيار قوة الهاشتاغ من الأزرار
-@bot.callback_query_handler(func=lambda call: call.data.startswith('strength_'))
-def callback_strength(call):
-    strength = call.data.split('_')[1]
-    chat_id = call.message.chat.id
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("نسخ الهاشتاغات", switch_inline_query=tags_text))
 
-    if chat_id not in user_keywords:
-        bot.answer_callback_query(call.id, "أول شي اكتب كلمة.")
-        return
+    bot.send_message(call.message.chat.id, f"هاي شوية هاشتاغات:\n\n{tags_text}", reply_markup=keyboard)
 
-    user_strengths[chat_id] = strength
-    keyword = user_keywords[chat_id]
+# إعداد الـ Webhook
+@app.route(f"/{API_TOKEN}", methods=["POST"])
+def receive_update():
+    json_str = request.get_data().decode("UTF-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
 
-    hashtags = get_hashtags(keyword, strength)
-    if not hashtags:
-        bot.send_message(chat_id, "ما قدرت أجيب هاشتاغات، جرب كلمة ثانية.")
-    else:
-        bot.send_message(chat_id, f"هاي شوية هاشتاغات لقوة '{strength}':\n{hashtags}")
+@app.route("/", methods=["GET"])
+def setup_webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    return "Webhook has been set!", 200
 
-    # بعد الرد ننظف بيانات المستخدم عشان يبدأ من جديد
-    user_keywords.pop(chat_id)
-    user_strengths.pop(chat_id)
-
-import random
-
-bot.infinity_polling()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
