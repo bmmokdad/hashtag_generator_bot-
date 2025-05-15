@@ -1,53 +1,49 @@
 import telebot
-from telebot import types
-import requests
-from bs4 import BeautifulSoup
+import os
+from flask import Flask, request
 
-TOKEN = "توكن البووت هون"
+TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-# تخزين المنصات المختارة لكل مستخدم
-user_platforms = {}
+app = Flask(__name__)
 
-def get_hashtags(keyword):
-    url = f"https://tiktokhashtags.com/search?q={keyword.replace(' ', '+')}"
-    headers = { "User-Agent": "Mozilla/5.0" }
-    r = requests.get(url, headers=headers)
+# رسالة البداية مع زر اختيار المنصة
+@bot.message_handler(commands=['start'])
+def start_message(message):
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("تيك توك")
+    bot.send_message(message.chat.id, "أهلا فيك، اختر المنصة يلي بدك هاشتاغات إلها:", reply_markup=markup)
 
-    if r.status_code != 200:
-        return ["فشل بجلب الهاشتاغات"]
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    tags_div = soup.find("div", class_="tag-box")
-
-    if not tags_div:
-        return ["ما لقيت هاشتاغات لهالكلمة"]
-
-    tags = [tag.text.strip() for tag in tags_div.find_all("a")]
-    return tags[:15]
-
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    tiktok_btn = types.KeyboardButton("تيك توك")
-    # رح نضيف لاحقًا انستغرام وفيسبوك
-    markup.add(tiktok_btn)
-    bot.send_message(message.chat.id, "اختر المنصة يلي بدك توليد هاشتاغات إلها:", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text in ["تيك توك"])
-def set_platform(message):
-    user_platforms[message.chat.id] = message.text
-    bot.send_message(message.chat.id, "تمام، بعتلي الكلمة المفتاحية لجبلك الهاشتاغات.")
-
+# الرد بعد اختيار المنصة
 @bot.message_handler(func=lambda m: True)
-def handle_keyword(message):
-    platform = user_platforms.get(message.chat.id)
-    if not platform:
-        bot.send_message(message.chat.id, "أول شي اختار المنصة يلي بدك الهاشتاغات إلها.")
-        return
+def get_hashtags(message):
+    if message.text == "تيك توك":
+        bot.reply_to(message, "اكتبلي الكلمة المفتاحية يلي بدك هاشتاغات عنها")
+    else:
+        keyword = message.text
+        # توليد هاشتاغات وهمية حالياً
+        fake_hashtags = [f"#{keyword}", f"#{keyword}tok", f"#{keyword}viral", f"#{keyword}2025"]
+        hashtags_text = " ".join(fake_hashtags)
+        bot.send_message(message.chat.id, f"هاي شوية هاشتاغات مقترحة:\n\n{hashtags_text}")
 
-    keyword = message.text
-    hashtags = get_hashtags(keyword)
-    bot.send_message(message.chat.id, "\n".join(hashtags))
+# Webhook handler
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
+    return "OK", 200
 
-bot.polling()
+# صفحة رئيسية بسيطة
+@app.route("/")
+def index():
+    return "Bot is running!"
+
+# إعداد Webhook عند تشغيل السيرفر
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
+    HEROKU_URL = "https://hashtag-generator-bot.onrender.com"
+
+    bot.remove_webhook()
+    bot.set_webhook(url=f"{HEROKU_URL}/{TOKEN}")
+    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
