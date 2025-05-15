@@ -3,7 +3,7 @@ from telebot import types
 import requests
 from bs4 import BeautifulSoup
 
-TOKEN = "توكن البوت هون"
+TOKEN = "توكن البووت هون"
 bot = telebot.TeleBot(TOKEN)
 
 # تخزين المنصات المختارة لكل مستخدم
