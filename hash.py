@@ -69,7 +69,8 @@ def webhook():
 @app.route('/')
 def index():
     return "البوت شغال تمام"
-
+    
 if __name__ == '__main__':
     bot.remove_webhook()
     bot.set_webhook(url=f"https://hashtag-generator-bot.onrender.com/{TOKEN}")
+    app.run(host="0.0.0.0", port=10000)
